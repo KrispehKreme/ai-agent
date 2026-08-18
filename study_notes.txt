@@ -1,0 +1,527 @@
+STUDY NOTES — Building a CLI AI Agent in Python
+(boot.dev-style course, using OpenAI SDK + OpenRouter)
+=================================================================
+
+1) SECRETS & ENV VARS
+-----------------------------------------------------------------
+- Never hard-code API keys in source. Use a .env file + python-dotenv.
+- load_dotenv() reads .env into process environment variables.
+- os.environ.get("KEY_NAME") retrieves it; returns None if missing.
+- Always fail fast if a required key is missing:
+      if api_key is None:
+          raise RuntimeError("Cannot find API key")
+- .env must be in .gitignore — never commit secrets.
+
+2) TALKING TO AN LLM VIA THE OPENAI SDK
+-----------------------------------------------------------------
+- The `openai` Python package works with any OpenAI-compatible API,
+  not just OpenAI itself — you just point `base_url` elsewhere.
+  Example: OpenRouter.
+      client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+- Chat requests go through client.chat.completions.create(...):
+      response = client.chat.completions.create(
+          model="openrouter/free",
+          messages=[{"role": "user", "content": "..."}],
+      )
+- `messages` is a list of role/content dicts — this is how you build
+  conversation history (system/user/assistant roles).
+- The response has:
+      response.choices[0].message.content   -> the model's reply text
+      response.usage.prompt_tokens          -> tokens in the input
+      response.usage.completion_tokens      -> tokens in the output
+- Always check `response.usage is not None` before trusting it —
+  a failed/partial request can come back without usage data.
+
+3) COMMAND-LINE ARGUMENTS WITH argparse
+-----------------------------------------------------------------
+- Goal: never make the user edit source code to change behavior.
+  Anything that varies per-run belongs on the command line.
+- Basic pattern:
+      import argparse
+      parser = argparse.ArgumentParser(description="Chatbot")
+      parser.add_argument("user_prompt", type=str, help="User prompt")
+      args = parser.parse_args()
+      # args.user_prompt now holds whatever the user typed
+- A positional argument (no leading `--`) is required by default;
+  argparse will auto-generate a usage/help message and exit with
+  status code 2 if it's missing or `-h`/`--help` is passed.
+- This is the general shape for CLI tools: parse args once near the
+  top of main(), then reference `args.<name>` everywhere instead of
+  a literal.
+
+4) DESIGN PRINCIPLE TAKEAWAY
+-----------------------------------------------------------------
+- Hard-coded prompt -> only works for one use case, requires editing
+  code to reuse.
+- CLI-argument prompt -> same script becomes a reusable tool:
+      uv run main.py "Explain recursion in one sentence"
+- This is the first step toward a more general "agent" CLI: later
+  steps will likely add more arguments/flags (e.g. --model, --verbose,
+  system prompt, conversation history, tool calls) using the same
+  argparse pattern.
+
+5) CONVERSATIONS & ROLES
+-----------------------------------------------------------------
+- LLM APIs are conversational, not one-shot: each request sends the
+  *entire* message history, and the model responds in that context
+  (like ChatGPT remembering earlier turns).
+- Every message has a "role" that identifies who said it:
+      "user"      -> messages from us / the human
+      "assistant" -> messages from the model
+      (later: "system" for instructions, "tool" for tool results)
+- Messages are just dicts: {"role": ..., "content": ...}
+- Pull the message list into its own variable instead of inlining it
+  in the API call — this is what lets you append to the conversation
+  over time (multi-turn chat) instead of only ever sending one message:
+      messages = [
+          {"role": "user", "content": args.user_prompt},
+      ]
+      response = client.chat.completions.create(
+          model="openrouter/free",
+          messages=messages,
+      )
+- Still "one-shot" for now (one user message, no history retained
+  between runs) but the shape is now ready for turn-by-turn growth:
+  future steps will likely append the assistant's reply and the next
+  user message onto `messages` before calling the API again.
+
+6) OPTIONAL FLAGS WITH argparse (store_true)
+-----------------------------------------------------------------
+- Optional args start with `--` (vs. positional args, which don't)
+  and can appear anywhere on the command line, before or after
+  positional args.
+- `action="store_true"` turns a flag into a boolean: present -> True,
+  absent -> False. No value needed after the flag itself.
+      parser.add_argument("--verbose", action="store_true",
+                           help="Enable verbose output")
+      # args.verbose is True if "--verbose" was passed, else False
+- Design pattern: keep default output minimal (just the useful
+  result) and gate extra diagnostic/debug info behind an opt-in flag.
+  This is the standard way CLI tools (git, curl, etc.) let power
+  users get more detail without cluttering everyday use.
+      if args.verbose:
+          print(f"User prompt: {args.user_prompt}")
+          print(f"Prompt tokens: {usage.prompt_tokens}")
+          print(f"Response tokens: {usage.completion_tokens}")
+      print(response.choices[0].message.content)   # always prints
+
+7) THE "CALCULATOR" TEST PROJECT
+-----------------------------------------------------------------
+- Added calculator/ as a separate, self-contained CLI app that the
+  AI agent (main.py at repo root) will later read, modify, and run.
+  This is the "target codebase" the agent will operate on — separate
+  from the agent's own source.
+- Structure:
+      calculator/
+        main.py          -> CLI entrypoint, parses sys.argv directly
+        tests.py          -> unittest test suite
+        pkg/
+          calculator.py   -> Calculator class (shunting-yard-style
+                             infix evaluator using two stacks:
+                             values and operators, plus a precedence
+                             table so "*" binds tighter than "+")
+          render.py       -> formats a result as JSON
+- Import note: `from pkg.calculator import Calculator` works because
+  when you run `uv run calculator/main.py`, Python adds that script's
+  own directory (calculator/) to sys.path, so `pkg` resolves as a
+  package relative to it — no __init__.py needed (implicit namespace
+  packages in modern Python).
+- This module boundary matters once the agent starts doing file I/O:
+  the agent's own code stays in the repo root / its own package, while
+  calculator/ is treated as "someone else's codebase" to inspect and
+  edit — a preview of how coding agents work against arbitrary repos.
+
+8) SANDBOXING FILE ACCESS FOR AN AGENT (get_files_info)
+-----------------------------------------------------------------
+- This is the agent's first "tool"/"function call": a capability the
+  LLM will eventually be allowed to invoke on its own. Every such
+  tool takes a `working_directory` (set by us, not the LLM) plus
+  LLM-controlled arguments (like `directory`) — and must never let
+  the LLM-controlled part escape the sandbox.
+- Path containment check pattern (critical security pattern — reuse
+  this shape for every future file-touching tool):
+      working_dir_abs = os.path.abspath(working_directory)
+      target_dir = os.path.normpath(os.path.join(working_dir_abs, directory))
+      valid = os.path.commonpath([working_dir_abs, target_dir]) == working_dir_abs
+  - abspath() resolves the working dir to a canonical absolute path.
+  - normpath() collapses "..", ".", and redundant separators so a
+    path like "../../etc" can't sneak past a naive string check.
+  - commonpath() finds the longest shared prefix of two paths; if
+    that shared prefix isn't the whole working_dir, the target has
+    escaped it (e.g. via "../" or an absolute path like "/bin").
+  - Without normpath+commonpath, a plain `str.startswith()` check is
+    exploitable (e.g. "/home/user/calculator-evil" startswith
+    "/home/user/calculator" but is a different directory).
+- Tool-call functions must ALWAYS return a string (never raise) —
+  the LLM only understands text, so exceptions get caught and turned
+  into "Error: ..." strings instead of crashing the program. Wrap the
+  whole function body in try/except Exception for this.
+- Manual debug scripts (test_get_files_info.py) vs. unit tests
+  (tests.py/unittest): a quick throwaway script that just calls the
+  function a few times and prints results is a fast way to eyeball
+  behavior during development, before/instead of writing formal
+  assertions.
+- Cross-directory imports: `from functions.get_files_info import
+  get_files_info` works the same way `from pkg.calculator import
+  Calculator` did — Python resolves `functions` as an implicit
+  namespace package relative to the script's directory.
+
+9) BUILDING THE TOOL'S TEXT OUTPUT (os.listdir/getsize/isdir)
+-----------------------------------------------------------------
+- Once a path is validated as safely inside the sandbox, listing its
+  contents for the LLM is just: enumerate entries, describe each one
+  in plain text, join into a single string (LLMs only see text, so
+  the "return value" of a tool call is always a formatted string,
+  never a Python object/list).
+      for entry_name in os.listdir(target_dir):
+          entry_path = os.path.join(target_dir, entry_name)
+          file_size = os.path.getsize(entry_path)      # bytes
+          is_dir = os.path.isdir(entry_path)           # bool
+          lines.append(f"- {entry_name}: file_size={file_size} bytes, is_dir={is_dir}")
+      return "\n".join(lines)
+- os.listdir(path) -> list of entry names (not full paths) directly
+  inside path (non-recursive).
+- os.path.getsize(path) -> size in bytes (works for files; for a
+  directory it returns the size of the directory entry itself, not
+  its contents).
+- os.path.isdir(path) -> True/False.
+- Order of os.listdir() results is filesystem-dependent — don't rely
+  on any particular ordering (assignment explicitly calls this out).
+- Note the try/except from step 8 still wraps this whole block, so
+  a permissions error or race condition (e.g. a file deleted mid-scan)
+  still degrades to an "Error: ..." string instead of crashing.
+
+10) READING FILE CONTENTS SAFELY (get_file_content)
+-----------------------------------------------------------------
+- Same sandboxing pattern as get_files_info (abspath + normpath +
+  commonpath) reused for a file path instead of a directory path —
+  this containment check is now a repeated pattern across every tool
+  that touches the filesystem, not a one-off.
+- New concern specific to reading file *contents*: an LLM has a
+  limited context window and costs money per token, so a tool must
+  never hand back an entire arbitrarily-large file. Cap it.
+- Config value pulled into its own config.py (MAX_CHARS = 10000)
+  instead of a magic number inline — keeps the limit tweakable/
+  discoverable in one place as more tools reuse it.
+- Truncation-detection trick: after f.read(MAX_CHARS), call f.read(1)
+  again.
+      - If it returns "" (empty string), the file had <= MAX_CHARS
+        total — nothing left, no truncation needed.
+      - If it returns a non-empty string, there was more data beyond
+        the cutoff, so append a
+        f'[...File "{file_path}" truncated at {MAX_CHARS} characters]'
+        marker onto the content.
+  This works because file objects are stateful iterators/cursors —
+  each .read(n) call continues from wherever the last one left off.
+- Testing large-input truncation doesn't require inspecting the full
+  content string (too big to eyeball) — just check its length and
+  whether the truncation marker substring is present:
+      print(f"length: {len(result)}")
+      print(f"truncated: {'truncated' in result}")
+
+11) WRITING FILES SAFELY (write_file)
+-----------------------------------------------------------------
+- First tool with a *side effect* (previous two were read-only) —
+  this is where sandboxing stops being theoretical: a bug here can
+  actually destroy data, not just leak it.
+- Same path-containment check as get_files_info/get_file_content,
+  reused a third time now — a clear sign it should eventually become
+  a shared helper function rather than copy-pasted logic (not asked
+  for yet, but worth noticing the pattern repeating).
+- Extra guard specific to writing: reject if the target path is
+  already a directory (os.path.isdir check) — "w" mode on a directory
+  path would raise IsADirectoryError, and we want a clean tool-level
+  error string instead of a raw traceback.
+- os.makedirs(os.path.dirname(target_file), exist_ok=True) ensures
+  parent directories exist before opening the file — lets the LLM
+  write to a brand-new nested path (e.g. "reports/2024/summary.txt")
+  in one call instead of needing a separate "create directory" tool.
+  exist_ok=True makes this a no-op if the dirs are already there
+  (no error like a plain os.makedirs would raise).
+- open(path, "w") always overwrites/truncates existing content —
+  there's no merge/append here, so calling this tool on an existing
+  file destroys what was there. The success message echoes back
+  len(content) so the caller (the LLM) gets confirmation of exactly
+  how much was written — a feedback loop so the agent can verify its
+  own actions instead of assuming they worked.
+
+12) RUNNING ARBITRARY CODE SAFELY-ISH (run_python_file, subprocess)
+-----------------------------------------------------------------
+- The most dangerous tool yet: letting the LLM execute code, not just
+  read/write it. Mitigations are limited but real:
+      1. Path containment (same pattern as every prior tool) confines
+         *which file* can be run to the sandboxed working directory.
+      2. A hard timeout (30s) via subprocess.run(..., timeout=30)
+         prevents runaway/infinite-loop code from hanging forever —
+         subprocess.run raises TimeoutExpired if exceeded (caught by
+         the outer try/except like any other error).
+  This is NOT full sandboxing (the script can still do anything
+  Python can do within that directory/timeout — no syscall filtering,
+  no resource limits) — explicitly called out as "for learning only."
+- subprocess.run() key arguments used here:
+      cwd=working_dir_abs     -> child process's working directory
+                                  (independent of file_path's location
+                                  inside it)
+      capture_output=True     -> captures stdout/stderr instead of
+                                  letting them print directly
+      text=True               -> decode captured bytes to str (else
+                                  you'd get bytes objects back)
+      timeout=30              -> seconds before TimeoutExpired is raised
+  Returns a CompletedProcess with .stdout, .stderr, .returncode.
+- Building the command as a list, not a shell string:
+      command = ["python", target_file]
+      if args: command.extend(args)
+  Passing a list (not `shell=True` with a joined string) avoids shell
+  injection — each element is passed as a literal argv entry, so
+  something like args=["; rm -rf /"] is just a single (harmless,
+  nonsensical) argument to the script, not shell-interpreted.
+- Validation order matters: check containment, then existence/is-file,
+  then the .py extension — each check produces its own specific error
+  string so the LLM gets an actionable reason, not a generic failure.
+- unittest prints its `OK`/dot-progress summary to stderr by default
+  (not stdout) — so seeing output under "STDERR:" from a passing test
+  run is normal, not a sign of failure; always check returncode too.
+
+13) THE SYSTEM PROMPT
+-----------------------------------------------------------------
+- A third message role (alongside "user"/"assistant"): "system".
+  It carries more weight than a user message and is meant to steer
+  the model's overall behavior/personality/rules for the whole
+  conversation, not answer any one question.
+- Mechanically it's dead simple — just another dict in the same
+  `messages` list, but placed FIRST:
+      messages = [
+          {"role": "system", "content": system_prompt},
+          {"role": "user", "content": args.user_prompt},
+      ]
+- Stored as its own hard-coded string (prompts.py, `system_prompt`)
+  rather than inline in main.py — same rationale as config.py for
+  MAX_CHARS: prompts tend to grow to multiple paragraphs and get
+  tuned iteratively, so isolating them keeps main() readable.
+- Triple-quoted strings (""" ... """) are the natural fit for
+  prompt text since they support multi-line content without manual
+  \n concatenation.
+- Important caveat repeated from the assignment: system prompts are
+  strong guidance, not a hard guarantee — models can still ignore,
+  hallucinate around, or be "jailbroken" out of the instructions,
+  especially with adversarial user input. Treat it as steering, not
+  a security boundary (the real security boundary is stuff like the
+  path-sandboxing in the tool functions, which the model can't argue
+  its way out of).
+- Debugging workflow note for later lessons: when a graded test
+  expects a specific model behavior and it's not showing up, the
+  first lever to pull is tightening/clarifying the system prompt —
+  not necessarily changing the surrounding Python code.
+
+14) TELLING THE LLM WHAT FUNCTIONS EXIST (tool schemas)
+-----------------------------------------------------------------
+- Key mental model: the LLM never directly executes code. The real
+  flow is:
+      1. We describe available functions to the model ("tools").
+      2. We send a prompt.
+      3. The model replies with which function it wants called and
+         what arguments to use — as structured data, not code.
+      4. WE run the actual function in our own process.
+      5. We feed the result back to the model (next lesson).
+  The model is a decision-maker/planner; our code stays in full
+  control of execution the whole time.
+- A tool schema is a dict describing one function using JSON Schema
+  for its parameters:
+      {
+        "type": "function",
+        "function": {
+          "name": "get_files_info",
+          "description": "...",           # tells the model WHEN/WHY to call it
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "directory": {"type": "string", "description": "..."},
+            },
+          },
+        },
+      }
+  The `description` fields (both function-level and per-parameter)
+  are doing real work here — they're the only thing guiding the
+  model's judgment about when/how to call the function, so they need
+  to be as clear as a docstring aimed at a very literal reader.
+- Deliberately omitting `working_directory` from the schema: the LLM
+  is never even told this parameter exists. It's injected by our own
+  code when we actually call the function. This is the enforcement
+  mechanism for the sandboxing built in earlier lessons — the model
+  has no channel through which to influence which directory tree
+  it's confined to.
+- Schemas are attached to the function's own module (e.g.
+  schema_get_files_info lives in functions/get_files_info.py) and
+  then collected into one list (`available_functions` in
+  call_function.py) passed to the API call:
+      response = client.chat.completions.create(
+          model=..., messages=..., tools=available_functions,
+      )
+- Reading a tool-call response: when the model decides to call a
+  function, the text content is empty/None and the info instead
+  lives on `message.tool_calls` (a list — the model can request
+  multiple calls at once). Each entry has:
+      tool_call.function.name        -> str, function name
+      tool_call.function.arguments   -> str, a JSON-encoded object
+                                         (needs json.loads to use)
+  Always branch on whether tool_calls is present: if so, handle
+  those; otherwise fall back to printing message.content as a normal
+  text reply. A response is either "text" or "one-or-more tool
+  calls" — not both, in this flow.
+- The system prompt was rewritten specifically to explain the
+  tool-use contract to the model (what it's allowed to do, and that
+  it doesn't need to supply working_directory itself) — another data
+  point for "when behavior needs to change, look at the system
+  prompt first."
+
+15) MORE TOOL SCHEMAS + "required" FIELDS
+-----------------------------------------------------------------
+- Same schema pattern as get_files_info, applied to the other three
+  tools — the only new JSON-Schema concept is "required":
+      "required": ["file_path"]                    # get_file_content
+      "required": ["file_path", "content"]          # write_file
+      "required": ["file_path"]                     # run_python_file
+  get_files_info's "directory" has no "required" entry because the
+  Python function itself has a default (`directory: str = "."`) —
+  the schema's required-ness should mirror whether the underlying
+  function can sensibly be called without that argument.
+- run_python_file's optional `args` is declared as a JSON array of
+  strings:
+      "args": {"type": "array", "items": {"type": "string"}, ...}
+  This is the first schema property that isn't a plain string —
+  JSON Schema types (string/array/object/etc.) map directly to how
+  you'd describe the parameter in any JSON Schema context, not
+  anything OpenAI-specific.
+- Every schema still omits `working_directory` — reinforcing that
+  the model only ever sees/declares the parameters it's allowed to
+  control; the sandboxing parameter stays invisible to it no matter
+  how many tools get added.
+- All four schemas get collected in one place (call_function.py) and
+  handed to the API as a flat list — the model chooses freely among
+  all of them per turn based on each schema's `description`, so the
+  quality of those descriptions directly determines how reliably the
+  model picks the right tool for a given user request.
+
+16) ACTUALLY CALLING THE FUNCTION (call_function)
+-----------------------------------------------------------------
+- This closes the loop from lesson 14: the model has been requesting
+  function calls, but nothing was actually invoking them. Now we do.
+- Dispatch by name via a dict, not if/elif chains:
+      function_map: dict[str, Callable[..., str]] = {
+          "get_files_info": get_files_info,
+          "get_file_content": get_file_content,
+          "run_python_file": run_python_file,
+          "write_file": write_file,
+      }
+  Functions are first-class values in Python — you can put the
+  function objects themselves (not calls to them) in a dict and look
+  one up by the string name the model gave you. This is the standard
+  "trust but verify the key exists" dispatch pattern: check
+  `function_name not in function_map` before indexing, so an
+  unrecognized name degrades to an error tool-message instead of a
+  KeyError crash.
+- Injecting the sandboxed parameter happens right before the call,
+  never before:
+      function_args["working_directory"] = "./calculator"
+      result = function_map[function_name](**function_args)
+  `**function_args` unpacks the dict into keyword arguments — this
+  only works because the schemas' property names (lesson 15) exactly
+  match the real Python parameter names (file_path, content, args,
+  directory). If they didn't match, this call would TypeError.
+- The "tool" role: after a tool call, the result must be sent back to
+  the model as its own message with role "tool", carrying
+  "tool_call_id" (matches the specific tool_call.id from the
+  request) so the model can line up which result answers which of
+  its (possibly several, parallel) requested calls:
+      {"role": "tool", "tool_call_id": tool_call.id, "content": result}
+  This message isn't sent back to the API yet in this lesson — that
+  wiring (looping the conversation) comes later — but the shape is
+  now correct and ready for that.
+- Defensive check in main(): if result_message["content"] is falsy,
+  raise rather than silently continuing — a tool call that produced
+  no content at all indicates something is fundamentally broken
+  (not a normal "Error: ..." string, which IS valid non-empty
+  content), so treat it as a program bug, not a recoverable case.
+- verbose vs. non-verbose printing is now threaded through
+  call_function itself (it takes its own `verbose` flag) rather than
+  main() deciding after the fact — keeps the "-> {result}" detail
+  print colocated with the call it describes.
+
+17) THE AGENTIC FEEDBACK LOOP
+-----------------------------------------------------------------
+- This is the step that actually makes it an "agent" rather than a
+  single-shot function-call demo: wrap the whole request/response
+  cycle in a bounded loop so the model can chain multiple tool calls
+  and see their results before producing a final answer.
+      for _ in range(MAX_ITERATIONS):     # MAX_ITERATIONS = 20
+          response = client.chat.completions.create(...)
+          message = response.choices[0].message
+          messages.append(message)         # the "assistant" turn
+
+          if not message.tool_calls:
+              print(message.content)       # final answer -> done
+              return
+
+          for tool_call in message.tool_calls:
+              result_message = call_function(tool_call, verbose=...)
+              messages.append(result_message)   # the "tool" turn(s)
+- The iteration cap (20) is a safety valve, same spirit as the
+  30-second subprocess timeout from run_python_file: without it, a
+  confused model could loop forever calling tools and burning tokens
+  with no way to stop itself. Falling through the loop without ever
+  hitting `return` means the cap was hit — print an explicit error
+  and `sys.exit(1)` so the failure is visible and scriptable (a
+  non-zero exit code), not silently swallowed.
+- Order is load-bearing, not just tidy: append the assistant message
+  BEFORE its tool result messages, and answer every tool_call in that
+  message with its own tool message before the next request goes
+  out. OpenAI-style APIs validate this shape server-side — a tool
+  call left "unanswered" in the message history is a request error
+  on the next turn, not just messy data.
+- `messages.append(message)` appends the actual response object
+  (not a hand-built dict) — the OpenAI SDK accepts its own message
+  objects back as conversation history directly, no manual
+  reconstruction into {"role":..., "content":...} needed for the
+  assistant turn (the tool-result messages, from call_function,
+  are still plain dicts as before).
+- This is also the point where the earlier "model explored instead
+  of acting directly" flakiness (lesson 16 debugging) stops being
+  fatal: even if the model's first move is get_files_info instead of
+  the tool you expected, the loop gives it another turn to follow up
+  with the right call once it sees that result — single-shot
+  behavior no longer has to be perfect on the first guess.
+
+18) PROMPT ENGINEERING FOR AN AUTONOMOUS DEBUGGING WORKFLOW
+-----------------------------------------------------------------
+- The capstone exercise: inject a real bug (calculator's "+"
+  precedence changed from 1 to 3, causing "3 + 7 * 2" to evaluate
+  as (3+7)*2=20 instead of the correct 3+(7*2)=17 — because
+  precedence 3 now makes "+" bind tighter than "*"'s precedence 2),
+  then let the agent loop (lesson 17) find, fix, and verify it with
+  zero hand-holding beyond a plain-English bug report.
+- With the feedback loop already in place, the remaining lever for
+  reliability is entirely prompt engineering — no new Python
+  mechanics here, just teaching the model a repeatable *procedure*:
+      1. Explore (list dirs / read files) before guessing.
+      2. Find the actual root cause, not just the symptom.
+      3. Apply a minimal, targeted write_file fix.
+      4. VERIFY by re-running the failing scenario / test suite.
+      5. Only report "fixed" after verification succeeds.
+  This "explore -> fix -> verify -> report" shape is the generic
+  template for prompting any coding agent to debug autonomously —
+  the key failure mode without it is a model that "fixes" something
+  by guessing and reports success without ever re-running the code
+  to check.
+- Explicitly forbidding a behavior in the prompt ("Do not claim
+  something is fixed without having verified it") is often more
+  effective than only describing the desired behavior positively —
+  models can otherwise skip the verification step because it feels
+  "done" after just editing a file.
+- This is the natural end-to-end test of everything built so far:
+  get_files_info (explore) -> get_file_content (read) -> write_file
+  (fix) -> run_python_file (verify) -> final text response, all
+  strung together by the loop with zero manual intervention between
+  steps.
+
+=================================================================
+(Keep appending to this file as new concepts come up.)
