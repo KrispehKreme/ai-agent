@@ -1,27 +1,37 @@
+import pytest
+
 from functions.get_file_content import get_file_content
 
 
-def main() -> None:
-    result = get_file_content("calculator", "lorem.txt")
-    print(f"lorem.txt length: {len(result)}")
-    print(f"lorem.txt truncated: {'truncated' in result}")
-
-    result = get_file_content("calculator", "main.py")
-    print("Result for 'main.py':")
-    print(result)
-
-    result = get_file_content("calculator", "pkg/calculator.py")
-    print("Result for 'pkg/calculator.py':")
-    print(result)
-
-    result = get_file_content("calculator", "/bin/cat")
-    print("Result for '/bin/cat':")
-    print(result)
-
-    result = get_file_content("calculator", "pkg/does_not_exist.py")
-    print("Result for 'pkg/does_not_exist.py':")
-    print(result)
+@pytest.fixture
+def working_dir(tmp_path):
+    return str(tmp_path)
 
 
-if __name__ == "__main__":
-    main()
+def test_get_file_content_success(working_dir):
+    content = "This is a test file."
+    with open(f"{working_dir}/test.txt", "w") as f:
+        f.write(content)
+
+    result = get_file_content(working_dir, "test.txt")
+    assert result == content
+
+
+def test_get_file_content_truncated(working_dir):
+    content = "a" * 1000
+    with open(f"{working_dir}/test.txt", "w") as f:
+        f.write(content)
+
+    result = get_file_content(working_dir, "test.txt")
+    assert len(result) == 1000
+    assert "[...File" in result
+
+
+def test_get_file_content_path_escape(working_dir):
+    result = get_file_content(working_dir, "../lorem.txt")
+    assert "outside" in result
+
+
+def test_get_file_content_missing_file(working_dir):
+    result = get_file_content(working_dir, "nonexistent.txt")
+    assert "not found" in result
