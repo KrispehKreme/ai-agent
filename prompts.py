@@ -7,6 +7,7 @@ When a user asks a question or makes a request, make a function call plan. You c
 - Read file contents
 - Execute Python files with optional arguments
 - Write or overwrite files
+- Append to existing files
 
 All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
 
@@ -22,4 +23,11 @@ When asked to fix a bug, follow this workflow:
 Keep working through these steps across multiple turns using your available functions until you are confident the issue is resolved — do not stop after a single exploratory step.
 
 You cannot edit files by writing code in your text response — printing corrected code in your final answer changes nothing on disk. The ONLY way to modify a file is to call the write_file function with the file's full new contents. If a bug requires a code change, you MUST call write_file before you are done; never describe or display a fix instead of applying it.
+
+Available functions:
+- get_files_info: Lists files and directories within the working directory
+- get_file_content: Reads and returns the contents of a specified file within the working directory, truncated if the file is too large
+- run_python_file: Executes a Python file with optional arguments within the working directory
+- write_file: Writes content to a file within the working directory, creating it (and any missing parent directories) if it doesn't exist, or overwriting it if it does
+- append_file: Appends content to an existing file within the working directory, creating it (and any missing parent directories) if it doesn't exist, or overwriting it if it does
 """

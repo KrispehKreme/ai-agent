@@ -6,6 +6,7 @@ from functions.get_files_info import get_files_info, schema_get_files_info
 from functions.run_python_file import run_python_file, schema_run_python_file
 from functions.write_file import schema_write_file, write_file
 from functions.get_file_size import get_file_size, schema_get_file_size
+from functions.append_file import schema_append_file, append_file
 
 available_functions = [
     schema_get_files_info,
@@ -13,6 +14,7 @@ available_functions = [
     schema_run_python_file,
     schema_write_file,
     schema_get_file_size,
+    schema_append_file,
 ]
 
 function_map: dict[str, Callable[..., str]] = {
@@ -21,6 +23,7 @@ function_map: dict[str, Callable[..., str]] = {
     "run_python_file": run_python_file,
     "write_file": write_file,
     "get_file_size": get_file_size,
+    "append_file": append_file,
 }
 
 
