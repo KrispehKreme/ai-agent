@@ -25,7 +25,7 @@ schema_append_file = {
     "type": "function",
     "function": {
         "name": "append_file",
-        "description": "Appends content to an existing file within the working directory, creating it (and any missing parent directories) if it doesn't exist, or overwriting it if it does",
+        "description": "Appends content to an existing file within the working directory. Returns an error if the file does not already exist (unlike write_file, it will not create it).",
         "parameters": {
             "type": "object",
             "properties": {

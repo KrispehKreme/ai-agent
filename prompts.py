@@ -29,5 +29,5 @@ Available functions:
 - get_file_content: Reads and returns the contents of a specified file within the working directory, truncated if the file is too large
 - run_python_file: Executes a Python file with optional arguments within the working directory
 - write_file: Writes content to a file within the working directory, creating it (and any missing parent directories) if it doesn't exist, or overwriting it if it does
-- append_file: Appends content to an existing file within the working directory, creating it (and any missing parent directories) if it doesn't exist, or overwriting it if it does
+- append_file: Appends content to an existing file within the working directory. Unlike write_file, it does not create the file if it's missing -- it returns an error instead. Prefer append_file over write_file when adding to a file that should already exist and whose current contents must be preserved.
 """

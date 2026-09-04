@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from functions.write_file import write_file
@@ -19,5 +21,6 @@ def test_write_file_path_escape(working_dir):
 
 
 def test_write_file_directory(working_dir):
-    result = write_file(working_dir, "test_dir/test.txt", "This is a test file.")
+    os.makedirs(f"{working_dir}/test_dir")
+    result = write_file(working_dir, "test_dir", "This is a test file.")
     assert "is a directory" in result

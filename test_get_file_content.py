@@ -18,12 +18,12 @@ def test_get_file_content_success(working_dir):
 
 
 def test_get_file_content_truncated(working_dir):
-    content = "a" * 1000
+    content = "a" * 10500
     with open(f"{working_dir}/test.txt", "w") as f:
         f.write(content)
 
     result = get_file_content(working_dir, "test.txt")
-    assert len(result) == 1000
+    assert len(result) > 10000
     assert "[...File" in result
 
 
