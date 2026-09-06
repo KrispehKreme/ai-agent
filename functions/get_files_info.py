@@ -1,5 +1,6 @@
-import os
+'''Lists files in a specified directory relative to the working directory, providing file size and directory status'''
 
+import os
 
 def get_files_info(working_directory: str, directory: str = ".") -> str:
     try:
@@ -23,7 +24,6 @@ def get_files_info(working_directory: str, directory: str = ".") -> str:
         return "\n".join(lines)
     except Exception as e:
         return f"Error: {e}"
-
 
 schema_get_files_info = {
     "type": "function",
