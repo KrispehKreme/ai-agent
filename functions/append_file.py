@@ -1,3 +1,5 @@
+'''Appends content to an existing file within the working directory. Returns an error if the file does not already exist (unlike write_file, it will not create it).'''
+
 import os
 
 
@@ -19,7 +21,6 @@ def append_file(working_directory: str, file_path: str, content: str) -> str:
         return f'Successfully appended {len(content)} characters to "{file_path}"'
     except Exception as e:
         return f"Error: {e}"
-
 
 schema_append_file = {
     "type": "function",
