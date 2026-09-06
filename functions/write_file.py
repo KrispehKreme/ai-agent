@@ -1,5 +1,6 @@
-import os
+'''Writes content to a file within the working directory, creating it (and any missing parent directories) if it doesn't exist, or overwriting it if it does'''
 
+import os
 
 def write_file(working_directory: str, file_path: str, content: str) -> str:
     try:
@@ -21,7 +22,6 @@ def write_file(working_directory: str, file_path: str, content: str) -> str:
         return f'Successfully wrote to "{file_path}" ({len(content)} characters written)'
     except Exception as e:
         return f"Error: {e}"
-
 
 schema_write_file = {
     "type": "function",
