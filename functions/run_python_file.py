@@ -1,6 +1,7 @@
+'''Executes a Python file within the working directory and returns its output, with an optional list of command-line arguments'''
+
 import os
 import subprocess
-
 
 def run_python_file(
     working_directory: str, file_path: str, args: list[str] | None = None
@@ -44,7 +45,6 @@ def run_python_file(
         return "\n".join(output_parts)
     except Exception as e:
         return f"Error: executing Python file: {e}"
-
 
 schema_run_python_file = {
     "type": "function",
