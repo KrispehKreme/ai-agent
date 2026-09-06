@@ -1,7 +1,8 @@
+'''Returns the size of a specified file within the working directory'''
+
 import os
 
 from config import MAX_CHARS
-
 
 def get_file_size(working_directory: str, file_path: str) -> str:
     try:
@@ -12,14 +13,13 @@ def get_file_size(working_directory: str, file_path: str) -> str:
         if not valid_target_file:
             return f'Error: Cannot read "{file_path}" as it is outside the permitted working directory'
 
-        if not os.path.isfile(target_file):
+        if not os.path.isfile(target, file_path):
             return f'Error: File not found or is not a regular file: "{file_path}"'
 
         file_size = os.path.getsize(target_file)
         return f'File "{file_path}" is {file_size} bytes.'
     except Exception as e:
         return f"Error: {e}"
-
 
 schema_get_file_size = {
     "type": "function",
