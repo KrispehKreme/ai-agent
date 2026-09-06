@@ -1,7 +1,8 @@
+'''Reads and returns the contents of a specified file within the working directory, truncated if the file is too large'''
+
 import os
 
 from config import MAX_CHARS
-
 
 def get_file_content(working_directory: str, file_path: str) -> str:
     try:
@@ -23,7 +24,6 @@ def get_file_content(working_directory: str, file_path: str) -> str:
         return content
     except Exception as e:
         return f"Error: {e}"
-
 
 schema_get_file_content = {
     "type": "function",
