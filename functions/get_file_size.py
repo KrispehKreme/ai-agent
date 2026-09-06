@@ -13,7 +13,7 @@ def get_file_size(working_directory: str, file_path: str) -> str:
         if not valid_target_file:
             return f'Error: Cannot read "{file_path}" as it is outside the permitted working directory'
 
-        if not os.path.isfile(target, file_path):
+        if not os.path.isfile(target_file):
             return f'Error: File not found or is not a regular file: "{file_path}"'
 
         file_size = os.path.getsize(target_file)
