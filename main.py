@@ -1,4 +1,4 @@
-'''This is the main entry point for the AI agent application.''
+'''This is the main entry point for the AI agent application.'''
 import argparse
 import os
 import sys

@@ -1,8 +1,9 @@
-'''This module contains unit tests for the calculator functionality.''
+'''This module contains unit tests for the calculator functionality.'''
 # calculator/tests.py
 
 import unittest
 from pkg.calculator import Calculator
+
 
 class TestCalculator(unittest.TestCase):
     def setUp(self) -> None:
@@ -45,5 +46,5 @@ class TestCalculator(unittest.TestCase):
             self.calculator.evaluate("+ 3")
 
 
-def main():
+if __name__ == "__main__":
     unittest.main()
