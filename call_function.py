@@ -1,3 +1,4 @@
+'''This module handles function calls within the AI agent framework.''
 import json
 from collections.abc import Callable
 
@@ -43,7 +44,7 @@ def call_function(tool_call, verbose: bool = False) -> dict:
             "content": f"Error: Unknown function: {function_name}",
         }
 
-    function_args["working_directory"] = "./calculator"
+    function_args["working_directory"] = ".//calculator"
     result = function_map[function_name](**function_args)
 
     return {
