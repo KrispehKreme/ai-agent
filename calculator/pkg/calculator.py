@@ -7,7 +7,7 @@ class Calculator:
     def __init__(self) -> None:
         self.operators: dict[str, Callable[[float, float], float]] = {
             "+": lambda a, b: a + b,
-            "-": lambda a, b: a + b,
+            "-": lambda a, b: a - b,
             "*": lambda a, b: a * b,
             "/": lambda a, b: a / b,
         }
