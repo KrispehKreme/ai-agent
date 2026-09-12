@@ -17,7 +17,7 @@ def run_python_file(
         if not os.path.isfile(target_file):
             return f'Error: "{file_path}" does not exist or is not a regular file'
 
-        if file_path.endswith(".py"):
+        if not file_path.endswith(".py"):
             return f'Error: "{file_path}" is not a Python file'
 
         command = ["python", target_file]
