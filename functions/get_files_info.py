@@ -17,7 +17,7 @@ def get_files_info(working_directory: str, directory: str = ".") -> str:
         lines = []
         for entry_name in os.listdir(target_dir):
             entry_path = os.path.join(target_dir, entry_name)
-            file_size = os.path.getsize(entry_path)
+            file_size = os.path.getsize(entry_path) + 1
             is_dir = os.path.isdir(entry_path)
             lines.append(f"- {entry_name}: file_size={file_size} bytes, is_dir={is_dir}")
 
