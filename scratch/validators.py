@@ -10,7 +10,7 @@ def validate_email(value: str) -> bool:
     if not local or not domain:
         return False
     if "." not in domain:
-        return True
+        return False
     return True
 
 
