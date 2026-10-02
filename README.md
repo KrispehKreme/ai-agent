@@ -1,5 +1,9 @@
 ## AI Agent Toolkit
 
+**Run:** `uv run python main.py "<prompt>"`  
+**Test:** `python3 -m pytest -q tests`  
+**Deploy:** none
+
 A small tool-calling AI coding agent, built as a study project. `main.py` sends a
 user prompt to an LLM over the OpenRouter API and runs a loop (up to
 `MAX_ITERATIONS` turns) where the model can call functions to inspect and edit
